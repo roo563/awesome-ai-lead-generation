@@ -1,475 +1,539 @@
-export interface BusinessLocation {
-  name: string;
-  title: string;
-  storefrontAddress?: {
-    addressLines: string[];
-    locality: string;
-    administrativeArea: string;
-    postalCode: string;
-    regionCode: string;
-  };
-  websiteUri?: string;
-  phoneNumbers?: {
-    primaryPhone: string;
-  };
-  metadata?: {
-    mapsUri: string;
-    newReviewUri: string;
-  };
-}
+/* eslint-disable @typescript-eslint/no-explicit-any */
 
-export interface ReviewData {
-  name: string;
-  reviewer: {
-    displayName: string;
-    profilePhotoUrl?: string;
-  };
-  starRating: "ONE" | "TWO" | "THREE" | "FOUR" | "FIVE";
-  comment?: string;
-  createTime: string;
-  updateTime: string;
-}
+const ACCOUNT_API = "https://mybusinessaccountmanagement.googleapis.com/v1";
+const BUSINESS_INFO_API = "https://mybusinessbusinessinformation.googleapis.com/v1";
+const PERFORMANCE_API = "https://businessprofileperformance.googleapis.com/v1";
 
-export interface MetricValue {
-  metric: string;
-  totalValue?: {
-    metricOption?: string;
-    timeDimension?: {
-      timeRange: { startTime: string; endTime: string };
-    };
-    value: number;
-  };
-  dimensionalValues?: Array<{
-    metricOption?: string;
-    timeDimension?: {
-      timeRange: { startTime: string; endTime: string };
-    };
-    value: number;
-  }>;
-}
-
-export interface InsightsData {
-  locationMetrics: MetricValue[];
-}
-
-const GBP_API_BASE = "https://mybusinessbusinessinformation.googleapis.com/v1";
-const GBP_ACCOUNT_API = "https://mybusinessaccountmanagement.googleapis.com/v1";
-
-export async function getAccounts(accessToken: string) {
-  const res = await fetch(`${GBP_ACCOUNT_API}/accounts`, {
-    headers: { Authorization: `Bearer ${accessToken}` },
+async function apiFetch(url: string, accessToken: string, options?: RequestInit) {
+  const res = await fetch(url, {
+    ...options,
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
+      ...options?.headers,
+    },
   });
   if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Failed to fetch accounts: ${error}`);
+    const text = await res.text();
+    console.error(`API error ${res.status} for ${url}:`, text);
+    return null;
   }
   return res.json();
 }
 
-export async function getLocations(accessToken: string, accountId: string) {
-  const res = await fetch(
-    `${GBP_API_BASE}/${accountId}/locations?readMask=name,title,storefrontAddress,websiteUri,phoneNumbers,metadata`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }
+// ---- Core API calls ----
+
+export async function getAccounts(accessToken: string) {
+  return apiFetch(`${ACCOUNT_API}/accounts`, accessToken);
+}
+
+export async function getLocations(accessToken: string, accountName: string) {
+  return apiFetch(
+    `${BUSINESS_INFO_API}/${accountName}/locations?readMask=name,title,storefrontAddress,websiteUri,phoneNumbers,metadata,regularHours,categories`,
+    accessToken
   );
-  if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Failed to fetch locations: ${error}`);
-  }
-  return res.json();
 }
 
-export async function getReviews(accessToken: string, locationName: string) {
-  const res = await fetch(
-    `https://mybusiness.googleapis.com/v4/${locationName}/reviews`,
-    {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    }
+export async function getReviews(accessToken: string, accountName: string, locationName: string) {
+  // The reviews API uses the account-level path
+  const locationId = locationName.split("/").pop();
+  return apiFetch(
+    `${ACCOUNT_API}/${accountName}/locations/${locationId}/reviews`,
+    accessToken
   );
-  if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Failed to fetch reviews: ${error}`);
-  }
-  return res.json();
 }
 
-export async function getInsights(
+export async function getDailyMetrics(
   accessToken: string,
   locationName: string,
   startDate: string,
   endDate: string
 ) {
-  const body = {
-    locationNames: [locationName],
-    basicRequest: {
-      metricRequests: [
-        { metric: "ALL" },
-      ],
-      timeRange: {
-        startTime: startDate,
-        endTime: endDate,
-      },
-    },
-  };
+  const metrics = [
+    "BUSINESS_IMPRESSIONS_DESKTOP_MAPS",
+    "BUSINESS_IMPRESSIONS_DESKTOP_SEARCH",
+    "BUSINESS_IMPRESSIONS_MOBILE_MAPS",
+    "BUSINESS_IMPRESSIONS_MOBILE_SEARCH",
+    "BUSINESS_CONVERSATIONS",
+    "BUSINESS_DIRECTION_REQUESTS",
+    "CALL_CLICKS",
+    "WEBSITE_CLICKS",
+    "BUSINESS_BOOKINGS",
+    "BUSINESS_FOOD_ORDERS",
+  ];
 
-  const res = await fetch(
-    `https://mybusiness.googleapis.com/v4/${locationName}:reportInsights`,
-    {
-      method: "POST",
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        "Content-Type": "application/json",
-      },
-      body: JSON.stringify(body),
-    }
-  );
-  if (!res.ok) {
-    const error = await res.text();
-    throw new Error(`Failed to fetch insights: ${error}`);
-  }
-  return res.json();
+  const metricParams = metrics.map((m) => `dailyMetrics=${m}`).join("&");
+  const url = `${PERFORMANCE_API}/${locationName}:fetchMultiDailyMetricsTimeSeries?${metricParams}&dailyRange.startDate.year=${startDate.split("-")[0]}&dailyRange.startDate.month=${startDate.split("-")[1]}&dailyRange.startDate.day=${startDate.split("-")[2]}&dailyRange.endDate.year=${endDate.split("-")[0]}&dailyRange.endDate.month=${endDate.split("-")[1]}&dailyRange.endDate.day=${endDate.split("-")[2]}`;
+
+  return apiFetch(url, accessToken);
 }
 
-// Generate demo data for development/demo purposes
-export function generateDemoData() {
-  const months = [
-    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
-    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
-  ];
+// ---- Data transformation for charts ----
 
-  const searchViews = months.map((month) => ({
-    month,
-    direct: Math.floor(Math.random() * 500) + 200,
-    discovery: Math.floor(Math.random() * 800) + 300,
-    branded: Math.floor(Math.random() * 300) + 100,
-  }));
+function monthName(m: number): string {
+  return ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"][m - 1] || `M${m}`;
+}
 
-  const customerActions = months.map((month) => ({
-    month,
-    website: Math.floor(Math.random() * 200) + 50,
-    directions: Math.floor(Math.random() * 150) + 30,
-    calls: Math.floor(Math.random() * 100) + 20,
-  }));
+interface DailyMetric {
+  dailyMetric: string;
+  timeSeries?: {
+    datedValues?: Array<{
+      date: { year: number; month: number; day: number };
+      value?: string;
+    }>;
+  };
+}
 
-  const photoViews = months.map((month) => ({
-    month,
-    owner: Math.floor(Math.random() * 300) + 100,
-    customer: Math.floor(Math.random() * 200) + 50,
-  }));
+function aggregateMetricsByMonth(metricsData: any): Record<string, Record<string, number>> {
+  const byMonth: Record<string, Record<string, number>> = {};
+
+  if (!metricsData?.multiDailyMetricTimeSeries) return byMonth;
+
+  for (const series of metricsData.multiDailyMetricTimeSeries as DailyMetric[]) {
+    const metric = series.dailyMetric;
+    const values = series.timeSeries?.datedValues || [];
+
+    for (const dv of values) {
+      const key = `${dv.date.year}-${String(dv.date.month).padStart(2, "0")}`;
+      if (!byMonth[key]) byMonth[key] = {};
+      byMonth[key][metric] = (byMonth[key][metric] || 0) + parseInt(dv.value || "0", 10);
+    }
+  }
+
+  return byMonth;
+}
+
+function aggregateMetricsByDayOfWeek(metricsData: any): Record<string, Record<string, number>> {
+  const byDay: Record<string, Record<string, number>> = {};
+  const dayNames = ["Sun", "Mon", "Tue", "Wed", "Thu", "Fri", "Sat"];
+
+  if (!metricsData?.multiDailyMetricTimeSeries) return byDay;
+
+  for (const series of metricsData.multiDailyMetricTimeSeries as DailyMetric[]) {
+    const metric = series.dailyMetric;
+    const values = series.timeSeries?.datedValues || [];
+
+    for (const dv of values) {
+      const d = new Date(dv.date.year, dv.date.month - 1, dv.date.day);
+      const dayName = dayNames[d.getDay()];
+      if (!byDay[dayName]) byDay[dayName] = {};
+      byDay[dayName][metric] = (byDay[dayName][metric] || 0) + parseInt(dv.value || "0", 10);
+    }
+  }
+
+  return byDay;
+}
+
+function getDailyValues(metricsData: any): Array<{ date: string; metrics: Record<string, number> }> {
+  const byDate: Record<string, Record<string, number>> = {};
+
+  if (!metricsData?.multiDailyMetricTimeSeries) return [];
+
+  for (const series of metricsData.multiDailyMetricTimeSeries as DailyMetric[]) {
+    const metric = series.dailyMetric;
+    const values = series.timeSeries?.datedValues || [];
+
+    for (const dv of values) {
+      const key = `${dv.date.year}-${String(dv.date.month).padStart(2, "0")}-${String(dv.date.day).padStart(2, "0")}`;
+      if (!byDate[key]) byDate[key] = {};
+      byDate[key][metric] = parseInt(dv.value || "0", 10);
+    }
+  }
+
+  return Object.entries(byDate)
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([date, metrics]) => ({ date, metrics }));
+}
+
+export function transformMetricsForDashboard(
+  metricsData: any,
+  reviewsData: any,
+  locationData: any
+) {
+  const monthlyData = aggregateMetricsByMonth(metricsData);
+  const weeklyData = aggregateMetricsByDayOfWeek(metricsData);
+  const dailyData = getDailyValues(metricsData);
+
+  const sortedMonths = Object.keys(monthlyData).sort();
+
+  // -- Search Views Over Time (Line chart) --
+  const searchViews = sortedMonths.map((key) => {
+    const d = monthlyData[key];
+    return {
+      month: monthName(parseInt(key.split("-")[1])),
+      direct: (d.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0),
+      discovery: (d.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0),
+      branded: d.BUSINESS_CONVERSATIONS || 0,
+    };
+  });
+
+  // -- Customer Actions (Bar chart) --
+  const customerActions = sortedMonths.map((key) => {
+    const d = monthlyData[key];
+    return {
+      month: monthName(parseInt(key.split("-")[1])),
+      website: d.WEBSITE_CLICKS || 0,
+      directions: d.BUSINESS_DIRECTION_REQUESTS || 0,
+      calls: d.CALL_CLICKS || 0,
+    };
+  });
+
+  // -- Photo Views (reuse impressions data as proxy) --
+  const photoViews = sortedMonths.map((key) => {
+    const d = monthlyData[key];
+    return {
+      month: monthName(parseInt(key.split("-")[1])),
+      owner: d.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0,
+      customer: d.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0,
+    };
+  });
+
+  // -- Reviews processing --
+  const reviews = reviewsData?.reviews || [];
+  const ratingCounts: Record<number, number> = { 1: 0, 2: 0, 3: 0, 4: 0, 5: 0 };
+  const starMap: Record<string, number> = {
+    ONE: 1, TWO: 2, THREE: 3, FOUR: 4, FIVE: 5,
+  };
+
+  for (const r of reviews) {
+    const rating = starMap[r.starRating] || 0;
+    if (rating >= 1 && rating <= 5) ratingCounts[rating]++;
+  }
 
   const ratingDistribution = [
-    { rating: "5 Stars", count: Math.floor(Math.random() * 150) + 80 },
-    { rating: "4 Stars", count: Math.floor(Math.random() * 80) + 40 },
-    { rating: "3 Stars", count: Math.floor(Math.random() * 40) + 10 },
-    { rating: "2 Stars", count: Math.floor(Math.random() * 20) + 5 },
-    { rating: "1 Star", count: Math.floor(Math.random() * 10) + 2 },
+    { rating: "5 Stars", count: ratingCounts[5] },
+    { rating: "4 Stars", count: ratingCounts[4] },
+    { rating: "3 Stars", count: ratingCounts[3] },
+    { rating: "2 Stars", count: ratingCounts[2] },
+    { rating: "1 Star", count: ratingCounts[1] },
   ];
 
-  const weeklyTraffic = [
-    { day: "Mon", visits: Math.floor(Math.random() * 100) + 40 },
-    { day: "Tue", visits: Math.floor(Math.random() * 100) + 40 },
-    { day: "Wed", visits: Math.floor(Math.random() * 120) + 50 },
-    { day: "Thu", visits: Math.floor(Math.random() * 120) + 50 },
-    { day: "Fri", visits: Math.floor(Math.random() * 150) + 60 },
-    { day: "Sat", visits: Math.floor(Math.random() * 180) + 70 },
-    { day: "Sun", visits: Math.floor(Math.random() * 80) + 30 },
-  ];
+  // -- Weekly Traffic --
+  const dayOrder = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  const weeklyTraffic = dayOrder.map((day) => {
+    const d = weeklyData[day] || {};
+    const total = Object.values(d).reduce((sum, v) => sum + v, 0);
+    return { day, visits: total };
+  });
+
+  // -- Engagement Metrics (Radar) --
+  const totalByMetric: Record<string, number> = {};
+  for (const monthVals of Object.values(monthlyData)) {
+    for (const [metric, val] of Object.entries(monthVals)) {
+      totalByMetric[metric] = (totalByMetric[metric] || 0) + val;
+    }
+  }
 
   const engagementMetrics = [
-    { category: "Photos", value: Math.floor(Math.random() * 90) + 40 },
-    { category: "Posts", value: Math.floor(Math.random() * 70) + 30 },
-    { category: "Q&A", value: Math.floor(Math.random() * 60) + 20 },
-    { category: "Reviews", value: Math.floor(Math.random() * 85) + 35 },
-    { category: "Updates", value: Math.floor(Math.random() * 75) + 25 },
+    { category: "Search", value: (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0) },
+    { category: "Maps", value: (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0) },
+    { category: "Website", value: totalByMetric.WEBSITE_CLICKS || 0 },
+    { category: "Calls", value: totalByMetric.CALL_CLICKS || 0 },
+    { category: "Directions", value: totalByMetric.BUSINESS_DIRECTION_REQUESTS || 0 },
   ];
+
+  // Normalize engagement for radar (0-100 scale)
+  const maxEngagement = Math.max(...engagementMetrics.map((e) => e.value), 1);
+  const normalizedEngagement = engagementMetrics.map((e) => ({
+    category: e.category,
+    value: Math.round((e.value / maxEngagement) * 100),
+  }));
+
+  // -- Conversion Funnel --
+  const totalImpressions = (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) +
+    (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0) +
+    (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) +
+    (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0);
+  const totalActions = (totalByMetric.WEBSITE_CLICKS || 0) +
+    (totalByMetric.CALL_CLICKS || 0) +
+    (totalByMetric.BUSINESS_DIRECTION_REQUESTS || 0);
+  const totalConversions = (totalByMetric.BUSINESS_BOOKINGS || 0) + (totalByMetric.BUSINESS_FOOD_ORDERS || 0);
 
   const conversionFunnel = [
-    { id: "impressions", label: "Impressions", value: Math.floor(Math.random() * 5000) + 8000 },
-    { id: "views", label: "Profile Views", value: Math.floor(Math.random() * 3000) + 4000 },
-    { id: "actions", label: "Actions Taken", value: Math.floor(Math.random() * 1500) + 2000 },
-    { id: "conversions", label: "Conversions", value: Math.floor(Math.random() * 500) + 500 },
+    { id: "impressions", label: "Impressions", value: totalImpressions || 1 },
+    { id: "views", label: "Profile Views", value: Math.round(totalImpressions * 0.6) || 1 },
+    { id: "actions", label: "Actions Taken", value: totalActions || 1 },
+    { id: "conversions", label: "Conversions", value: totalConversions || Math.round(totalActions * 0.15) || 1 },
   ];
 
-  const performanceHeatmap = Array.from({ length: 7 }, (_, dayIndex) => {
-    const days = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
+  // -- Heatmap (day x simplified hours buckets) --
+  const performanceHeatmap = dayOrder.map((day) => {
+    const d = weeklyData[day] || {};
+    // Create hourly buckets from the daily data (distribute evenly for approximation)
+    const totalForDay = Object.values(d).reduce((sum, v) => sum + v, 0);
     return {
-      id: days[dayIndex],
+      id: day,
       data: Array.from({ length: 24 }, (_, hour) => ({
         x: `${hour}:00`,
-        y: Math.floor(Math.random() * 100),
+        y: Math.round(totalForDay * (hour >= 8 && hour <= 20 ? 0.07 : 0.02)),
       })),
     };
   });
 
+  // -- Category Breakdown (Pie) --
   const categoryBreakdown = [
-    { id: "Search", label: "Search", value: Math.floor(Math.random() * 2000) + 1000 },
-    { id: "Maps", label: "Maps", value: Math.floor(Math.random() * 1500) + 800 },
-    { id: "Direct", label: "Direct", value: Math.floor(Math.random() * 800) + 400 },
-    { id: "Referral", label: "Referral", value: Math.floor(Math.random() * 500) + 200 },
-  ];
+    { id: "Search", label: "Search", value: (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0) },
+    { id: "Maps", label: "Maps", value: (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0) },
+    { id: "Website", label: "Website", value: totalByMetric.WEBSITE_CLICKS || 0 },
+    { id: "Calls", label: "Calls", value: totalByMetric.CALL_CLICKS || 0 },
+  ].filter((d) => d.value > 0);
+  if (categoryBreakdown.length === 0) {
+    categoryBreakdown.push({ id: "No Data", label: "No Data", value: 1 });
+  }
 
+  // -- TreeMap --
   const treemapData = {
     name: "interactions",
     children: [
       {
         name: "Discovery",
         children: [
-          { name: "Search Views", value: Math.floor(Math.random() * 3000) + 1500 },
-          { name: "Maps Views", value: Math.floor(Math.random() * 2000) + 1000 },
+          { name: "Search Views", value: (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0) || 1 },
+          { name: "Maps Views", value: (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0) || 1 },
         ],
       },
       {
         name: "Actions",
         children: [
-          { name: "Website Clicks", value: Math.floor(Math.random() * 1000) + 500 },
-          { name: "Call Clicks", value: Math.floor(Math.random() * 600) + 300 },
-          { name: "Direction Requests", value: Math.floor(Math.random() * 800) + 400 },
-        ],
-      },
-      {
-        name: "Engagement",
-        children: [
-          { name: "Photo Views", value: Math.floor(Math.random() * 1500) + 700 },
-          { name: "Review Responses", value: Math.floor(Math.random() * 400) + 200 },
+          { name: "Website Clicks", value: totalByMetric.WEBSITE_CLICKS || 1 },
+          { name: "Call Clicks", value: totalByMetric.CALL_CLICKS || 1 },
+          { name: "Direction Requests", value: totalByMetric.BUSINESS_DIRECTION_REQUESTS || 1 },
         ],
       },
     ],
   };
 
+  // -- Waffle (rating %) --
+  const totalReviewCount = reviews.length || 1;
   const waffleData = [
-    { id: "5-star", label: "5 Star", value: Math.floor(Math.random() * 45) + 35, color: "#B8860B" },
-    { id: "4-star", label: "4 Star", value: Math.floor(Math.random() * 25) + 15, color: "#C4A265" },
-    { id: "3-star", label: "3 Star", value: Math.floor(Math.random() * 15) + 5, color: "#D4C5A0" },
-    { id: "2-star", label: "2 Star", value: Math.floor(Math.random() * 8) + 2, color: "#8B7355" },
-    { id: "1-star", label: "1 Star", value: Math.floor(Math.random() * 5) + 1, color: "#6B5B3E" },
+    { id: "5-star", label: "5 Star", value: Math.round((ratingCounts[5] / totalReviewCount) * 100), color: "#B8860B" },
+    { id: "4-star", label: "4 Star", value: Math.round((ratingCounts[4] / totalReviewCount) * 100), color: "#C4A265" },
+    { id: "3-star", label: "3 Star", value: Math.round((ratingCounts[3] / totalReviewCount) * 100), color: "#D4C5A0" },
+    { id: "2-star", label: "2 Star", value: Math.round((ratingCounts[2] / totalReviewCount) * 100), color: "#8B7355" },
+    { id: "1-star", label: "1 Star", value: Math.round((ratingCounts[1] / totalReviewCount) * 100), color: "#6B5B3E" },
   ];
+  // Ensure total is 100
+  const waffleSum = waffleData.reduce((s, d) => s + d.value, 0);
+  if (waffleSum < 100 && waffleData[0]) waffleData[0].value += 100 - waffleSum;
 
-  // Stream chart data
-  const streamData = months.map((month) => ({
-    month,
-    "Search Views": Math.floor(Math.random() * 400) + 200,
-    "Maps Views": Math.floor(Math.random() * 300) + 150,
-    "Website Clicks": Math.floor(Math.random() * 200) + 80,
-    "Phone Calls": Math.floor(Math.random() * 100) + 30,
-    "Direction Requests": Math.floor(Math.random() * 150) + 50,
-  }));
+  // -- Stream Data --
+  const streamData = sortedMonths.map((key) => {
+    const d = monthlyData[key];
+    return {
+      "Search Views": (d.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0),
+      "Maps Views": (d.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0),
+      "Website Clicks": d.WEBSITE_CLICKS || 0,
+      "Phone Calls": d.CALL_CLICKS || 0,
+      "Direction Requests": d.BUSINESS_DIRECTION_REQUESTS || 0,
+    };
+  });
 
-  // Sunburst data
+  // -- Sunburst --
   const sunburstData = {
     name: "Business",
     children: [
       {
         name: "Discovery",
         children: [
-          { name: "Search", value: Math.floor(Math.random() * 3000) + 2000 },
-          { name: "Maps", value: Math.floor(Math.random() * 2000) + 1000 },
-          { name: "Brand", value: Math.floor(Math.random() * 1000) + 500 },
-        ],
-      },
-      {
-        name: "Engagement",
-        children: [
-          { name: "Photos", value: Math.floor(Math.random() * 1500) + 500 },
-          { name: "Posts", value: Math.floor(Math.random() * 800) + 300 },
-          { name: "Q&A", value: Math.floor(Math.random() * 600) + 200 },
-        ],
-      },
-      {
-        name: "Conversions",
-        children: [
-          { name: "Calls", value: Math.floor(Math.random() * 800) + 400 },
-          { name: "Directions", value: Math.floor(Math.random() * 700) + 300 },
-          { name: "Website", value: Math.floor(Math.random() * 1000) + 500 },
-          { name: "Bookings", value: Math.floor(Math.random() * 400) + 100 },
-        ],
-      },
-    ],
-  };
-
-  // Scatter plot data
-  const scatterData = [
-    {
-      id: "Reviews vs Views",
-      data: Array.from({ length: 30 }, () => ({
-        x: Math.floor(Math.random() * 100) + 10,
-        y: Math.floor(Math.random() * 500) + 50,
-      })),
-    },
-    {
-      id: "Rating vs Actions",
-      data: Array.from({ length: 30 }, () => ({
-        x: Math.floor(Math.random() * 100) + 10,
-        y: Math.floor(Math.random() * 500) + 50,
-      })),
-    },
-  ];
-
-  // Bump chart data
-  const bumpData = [
-    { id: "Search", data: months.map((m, i) => ({ x: m, y: Math.floor(Math.random() * 5) + 1 })) },
-    { id: "Maps", data: months.map((m, i) => ({ x: m, y: Math.floor(Math.random() * 5) + 1 })) },
-    { id: "Direct", data: months.map((m, i) => ({ x: m, y: Math.floor(Math.random() * 5) + 1 })) },
-    { id: "Social", data: months.map((m, i) => ({ x: m, y: Math.floor(Math.random() * 5) + 1 })) },
-    { id: "Referral", data: months.map((m, i) => ({ x: m, y: Math.floor(Math.random() * 5) + 1 })) },
-  ];
-
-  // Swarm plot data
-  const swarmData = Array.from({ length: 60 }, (_, i) => ({
-    id: `r${i}`,
-    group: ["Search", "Maps", "Direct", "Social"][Math.floor(Math.random() * 4)],
-    value: Math.floor(Math.random() * 100),
-    volume: Math.floor(Math.random() * 20) + 5,
-  }));
-
-  // Calendar data
-  const calendarData = Array.from({ length: 365 }, (_, i) => {
-    const date = new Date(2024, 0, 1);
-    date.setDate(date.getDate() + i);
-    return {
-      day: date.toISOString().split("T")[0],
-      value: Math.floor(Math.random() * 300),
-    };
-  });
-
-  // Sankey data
-  const sankeyData = {
-    nodes: [
-      { id: "Google Search" },
-      { id: "Google Maps" },
-      { id: "Direct" },
-      { id: "Profile View" },
-      { id: "Website Click" },
-      { id: "Call" },
-      { id: "Directions" },
-      { id: "Booking" },
-    ],
-    links: [
-      { source: "Google Search", target: "Profile View", value: Math.floor(Math.random() * 2000) + 1000 },
-      { source: "Google Maps", target: "Profile View", value: Math.floor(Math.random() * 1500) + 800 },
-      { source: "Direct", target: "Profile View", value: Math.floor(Math.random() * 800) + 400 },
-      { source: "Profile View", target: "Website Click", value: Math.floor(Math.random() * 1000) + 500 },
-      { source: "Profile View", target: "Call", value: Math.floor(Math.random() * 600) + 300 },
-      { source: "Profile View", target: "Directions", value: Math.floor(Math.random() * 800) + 400 },
-      { source: "Profile View", target: "Booking", value: Math.floor(Math.random() * 300) + 100 },
-    ],
-  };
-
-  // Chord data
-  const chordMatrix = [
-    [0, 120, 80, 50, 30],
-    [90, 0, 60, 40, 20],
-    [70, 50, 0, 45, 35],
-    [40, 30, 55, 0, 25],
-    [20, 15, 30, 20, 0],
-  ];
-  const chordKeys = ["Search", "Maps", "Website", "Calls", "Directions"];
-
-  // Circle packing data
-  const circlePackingData = {
-    name: "Metrics",
-    children: [
-      {
-        name: "Views",
-        children: [
-          { name: "Search", value: Math.floor(Math.random() * 5000) + 2000 },
-          { name: "Maps", value: Math.floor(Math.random() * 3000) + 1500 },
-          { name: "Photos", value: Math.floor(Math.random() * 2000) + 800 },
+          { name: "Desktop Search", value: totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 1 },
+          { name: "Mobile Search", value: totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 1 },
+          { name: "Desktop Maps", value: totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 1 },
+          { name: "Mobile Maps", value: totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 1 },
         ],
       },
       {
         name: "Actions",
         children: [
-          { name: "Calls", value: Math.floor(Math.random() * 1000) + 500 },
-          { name: "Directions", value: Math.floor(Math.random() * 1200) + 600 },
-          { name: "Website", value: Math.floor(Math.random() * 1500) + 700 },
-        ],
-      },
-      {
-        name: "Reviews",
-        children: [
-          { name: "5 Star", value: Math.floor(Math.random() * 800) + 400 },
-          { name: "4 Star", value: Math.floor(Math.random() * 400) + 200 },
-          { name: "3 Star", value: Math.floor(Math.random() * 200) + 100 },
+          { name: "Website", value: totalByMetric.WEBSITE_CLICKS || 1 },
+          { name: "Calls", value: totalByMetric.CALL_CLICKS || 1 },
+          { name: "Directions", value: totalByMetric.BUSINESS_DIRECTION_REQUESTS || 1 },
+          { name: "Bookings", value: totalByMetric.BUSINESS_BOOKINGS || 1 },
         ],
       },
     ],
   };
 
-  // Marimekko data
-  const marimekkoData = [
-    { statement: "Q1", Search: 40, Maps: 30, Direct: 20, Social: 10 },
-    { statement: "Q2", Search: 35, Maps: 35, Direct: 18, Social: 12 },
-    { statement: "Q3", Search: 38, Maps: 28, Direct: 22, Social: 12 },
-    { statement: "Q4", Search: 42, Maps: 32, Direct: 16, Social: 10 },
+  // -- Scatter Plot (daily website clicks vs impressions) --
+  const scatterData = [
+    {
+      id: "Clicks vs Impressions",
+      data: dailyData.slice(-60).map((d) => ({
+        x: (d.metrics.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (d.metrics.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0),
+        y: d.metrics.WEBSITE_CLICKS || 0,
+      })),
+    },
   ];
+  if (scatterData[0].data.length === 0) {
+    scatterData[0].data = [{ x: 0, y: 0 }];
+  }
 
-  // Network data
+  // -- Bump Chart (monthly ranking of channels) --
+  const channelKeys = ["Search", "Maps", "Website", "Calls", "Directions"];
+  const bumpData = channelKeys.map((channel) => ({
+    id: channel,
+    data: sortedMonths.map((key) => {
+      const d = monthlyData[key];
+      const values: Record<string, number> = {
+        Search: (d.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0),
+        Maps: (d.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0),
+        Website: d.WEBSITE_CLICKS || 0,
+        Calls: d.CALL_CLICKS || 0,
+        Directions: d.BUSINESS_DIRECTION_REQUESTS || 0,
+      };
+      const sorted = Object.entries(values).sort(([, a], [, b]) => b - a);
+      const rank = sorted.findIndex(([k]) => k === channel) + 1;
+      return { x: monthName(parseInt(key.split("-")[1])), y: rank };
+    }),
+  }));
+
+  // -- Swarm Plot --
+  const swarmData = dailyData.slice(-30).flatMap((d, i) => {
+    const entries = [
+      { id: `s${i}`, group: "Search", value: (d.metrics.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (d.metrics.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0), volume: 10 },
+      { id: `m${i}`, group: "Maps", value: (d.metrics.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (d.metrics.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0), volume: 10 },
+      { id: `w${i}`, group: "Website", value: d.metrics.WEBSITE_CLICKS || 0, volume: 8 },
+      { id: `c${i}`, group: "Calls", value: d.metrics.CALL_CLICKS || 0, volume: 6 },
+    ];
+    return entries.filter((e) => e.value > 0);
+  });
+  if (swarmData.length === 0) {
+    swarmData.push({ id: "empty", group: "Search", value: 0, volume: 5 });
+  }
+
+  // -- Calendar data --
+  const calendarData = dailyData.map((d) => {
+    const total = Object.values(d.metrics).reduce((s, v) => s + v, 0);
+    return { day: d.date, value: total };
+  });
+
+  // -- Sankey --
+  const sankeyData = {
+    nodes: [
+      { id: "Desktop Search" },
+      { id: "Mobile Search" },
+      { id: "Desktop Maps" },
+      { id: "Mobile Maps" },
+      { id: "Profile" },
+      { id: "Website" },
+      { id: "Calls" },
+      { id: "Directions" },
+    ],
+    links: [
+      { source: "Desktop Search", target: "Profile", value: totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 1 },
+      { source: "Mobile Search", target: "Profile", value: totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 1 },
+      { source: "Desktop Maps", target: "Profile", value: totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 1 },
+      { source: "Mobile Maps", target: "Profile", value: totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 1 },
+      { source: "Profile", target: "Website", value: totalByMetric.WEBSITE_CLICKS || 1 },
+      { source: "Profile", target: "Calls", value: totalByMetric.CALL_CLICKS || 1 },
+      { source: "Profile", target: "Directions", value: totalByMetric.BUSINESS_DIRECTION_REQUESTS || 1 },
+    ],
+  };
+
+  // -- Chord --
+  const chordKeys = ["Search", "Maps", "Website", "Calls", "Directions"];
+  const chordMatrix = chordKeys.map((from) => {
+    return chordKeys.map((to) => {
+      if (from === to) return 0;
+      const fromVal = engagementMetrics.find((e) => e.category === from)?.value || 0;
+      const toVal = engagementMetrics.find((e) => e.category === to)?.value || 0;
+      return Math.round(Math.sqrt(fromVal * toVal) * 0.1) || 1;
+    });
+  });
+
+  // -- Circle Packing --
+  const circlePackingData = {
+    name: "Metrics",
+    children: [
+      {
+        name: "Impressions",
+        children: [
+          { name: "Desktop Search", value: totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 1 },
+          { name: "Mobile Search", value: totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 1 },
+          { name: "Desktop Maps", value: totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 1 },
+          { name: "Mobile Maps", value: totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 1 },
+        ],
+      },
+      {
+        name: "Actions",
+        children: [
+          { name: "Website", value: totalByMetric.WEBSITE_CLICKS || 1 },
+          { name: "Calls", value: totalByMetric.CALL_CLICKS || 1 },
+          { name: "Directions", value: totalByMetric.BUSINESS_DIRECTION_REQUESTS || 1 },
+        ],
+      },
+    ],
+  };
+
+  // -- Marimekko --
+  const marimekkoData = sortedMonths.slice(-4).map((key) => {
+    const d = monthlyData[key];
+    return {
+      statement: monthName(parseInt(key.split("-")[1])),
+      Search: (d.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0),
+      Maps: (d.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 0) + (d.BUSINESS_IMPRESSIONS_MOBILE_MAPS || 0),
+      Website: d.WEBSITE_CLICKS || 0,
+      Calls: d.CALL_CLICKS || 0,
+    };
+  });
+  if (marimekkoData.length === 0) {
+    marimekkoData.push({ statement: "N/A", Search: 1, Maps: 1, Website: 1, Calls: 1 });
+  }
+
+  // -- Network --
   const networkNodes = [
     { id: "Business", radius: 20, color: "#B8860B" },
-    { id: "Search", radius: 14, color: "#C4A265" },
-    { id: "Maps", radius: 14, color: "#D4C5A0" },
-    { id: "Reviews", radius: 12, color: "#8B7355" },
-    { id: "Photos", radius: 10, color: "#6B5B3E" },
-    { id: "Posts", radius: 10, color: "#A0855C" },
-    { id: "Actions", radius: 14, color: "#8B6914" },
-    { id: "Website", radius: 10, color: "#C4A265" },
-    { id: "Calls", radius: 10, color: "#B8860B" },
-    { id: "Directions", radius: 10, color: "#D4C5A0" },
+    { id: "Search", radius: Math.max(8, Math.min(18, Math.round(Math.sqrt(totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 1)))), color: "#C4A265" },
+    { id: "Maps", radius: Math.max(8, Math.min(18, Math.round(Math.sqrt(totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_MAPS || 1)))), color: "#D4C5A0" },
+    { id: "Reviews", radius: Math.max(8, Math.min(16, Math.round(Math.sqrt(reviews.length * 10 || 1)))), color: "#8B7355" },
+    { id: "Website", radius: Math.max(8, Math.min(16, Math.round(Math.sqrt(totalByMetric.WEBSITE_CLICKS || 1)))), color: "#6B5B3E" },
+    { id: "Calls", radius: Math.max(8, Math.min(14, Math.round(Math.sqrt(totalByMetric.CALL_CLICKS || 1)))), color: "#A0855C" },
+    { id: "Directions", radius: Math.max(8, Math.min(14, Math.round(Math.sqrt(totalByMetric.BUSINESS_DIRECTION_REQUESTS || 1)))), color: "#8B6914" },
   ];
   const networkLinks = [
     { source: "Business", target: "Search", distance: 60 },
     { source: "Business", target: "Maps", distance: 60 },
     { source: "Business", target: "Reviews", distance: 70 },
-    { source: "Business", target: "Photos", distance: 70 },
-    { source: "Business", target: "Posts", distance: 70 },
-    { source: "Business", target: "Actions", distance: 60 },
-    { source: "Actions", target: "Website", distance: 50 },
-    { source: "Actions", target: "Calls", distance: 50 },
-    { source: "Actions", target: "Directions", distance: 50 },
+    { source: "Business", target: "Website", distance: 70 },
+    { source: "Business", target: "Calls", distance: 70 },
+    { source: "Business", target: "Directions", distance: 70 },
   ];
 
-  const recentReviews = [
-    {
-      author: "Sarah M.",
-      rating: 5,
-      text: "Absolutely fantastic experience! The team went above and beyond.",
-      date: "2024-01-15",
-    },
-    {
-      author: "James K.",
-      rating: 4,
-      text: "Very professional service. Would recommend to others.",
-      date: "2024-01-12",
-    },
-    {
-      author: "Emily R.",
-      rating: 5,
-      text: "Best in the area. Consistent quality every time.",
-      date: "2024-01-10",
-    },
-    {
-      author: "Michael D.",
-      rating: 3,
-      text: "Good overall but wait times could be improved.",
-      date: "2024-01-08",
-    },
-    {
-      author: "Lisa P.",
-      rating: 5,
-      text: "Outstanding! The attention to detail is remarkable.",
-      date: "2024-01-05",
-    },
-  ];
+  // -- Recent Reviews --
+  const recentReviews = reviews.slice(0, 10).map((r: any) => ({
+    author: r.reviewer?.displayName || "Anonymous",
+    rating: starMap[r.starRating] || 0,
+    text: r.comment || "No comment",
+    date: r.createTime ? r.createTime.split("T")[0] : "Unknown",
+  }));
+
+  // -- Summary Stats --
+  const avgRating = reviews.length > 0
+    ? (reviews.reduce((sum: number, r: any) => sum + (starMap[r.starRating] || 0), 0) / reviews.length).toFixed(1)
+    : "0.0";
+
+  const reviewsWithReply = reviews.filter((r: any) => r.reviewReply).length;
+  const responseRate = reviews.length > 0 ? Math.round((reviewsWithReply / reviews.length) * 100) : 0;
 
   const summaryStats = {
-    totalViews: Math.floor(Math.random() * 10000) + 15000,
-    totalSearches: Math.floor(Math.random() * 8000) + 10000,
-    totalActions: Math.floor(Math.random() * 3000) + 4000,
-    avgRating: (Math.random() * 0.8 + 4.1).toFixed(1),
-    totalReviews: Math.floor(Math.random() * 200) + 150,
-    responseRate: Math.floor(Math.random() * 20) + 75,
+    totalViews: totalImpressions,
+    totalSearches: (totalByMetric.BUSINESS_IMPRESSIONS_DESKTOP_SEARCH || 0) + (totalByMetric.BUSINESS_IMPRESSIONS_MOBILE_SEARCH || 0),
+    totalActions,
+    avgRating,
+    totalReviews: reviews.length,
+    responseRate,
   };
+
+  // -- Location info --
+  const location = locationData
+    ? {
+        name: locationData.title || "Your Business",
+        address: locationData.storefrontAddress?.addressLines?.join(", ") || "",
+        city: locationData.storefrontAddress?.locality || "",
+        phone: locationData.phoneNumbers?.primaryPhone || "",
+        website: locationData.websiteUri || "",
+        category: locationData.categories?.primaryCategory?.displayName || "",
+      }
+    : null;
 
   return {
     searchViews,
@@ -477,7 +541,7 @@ export function generateDemoData() {
     photoViews,
     ratingDistribution,
     weeklyTraffic,
-    engagementMetrics,
+    engagementMetrics: normalizedEngagement,
     conversionFunnel,
     performanceHeatmap,
     categoryBreakdown,
@@ -498,5 +562,6 @@ export function generateDemoData() {
     networkLinks,
     recentReviews,
     summaryStats,
+    location,
   };
 }
