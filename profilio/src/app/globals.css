@@ -1,0 +1,162 @@
+@import "tailwindcss";
+
+:root {
+  --color-cream: #F5F0E8;
+  --color-warm-beige: #E8DFD0;
+  --color-gold: #B8860B;
+  --color-gold-light: #C4A265;
+  --color-gold-dark: #8B6914;
+  --color-charcoal: #2C2C2C;
+  --color-dark-brown: #3E3226;
+  --color-medium-brown: #6B5B3E;
+  --color-light-brown: #8B7355;
+  --color-soft-white: #FAF8F5;
+  --color-glass-bg: rgba(245, 240, 232, 0.65);
+  --color-glass-border: rgba(184, 134, 11, 0.2);
+  --color-glass-shadow: rgba(0, 0, 0, 0.1);
+  --font-display: "Playfair Display", Georgia, "Times New Roman", serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+@layer base {
+  * {
+    margin: 0;
+    padding: 0;
+    box-sizing: border-box;
+  }
+
+  html {
+    scroll-behavior: smooth;
+  }
+
+  body {
+    font-family: var(--font-body);
+    color: var(--color-charcoal);
+    background: var(--color-cream);
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  h1, h2, h3, h4, h5, h6 {
+    font-family: var(--font-display);
+    font-weight: 600;
+    letter-spacing: -0.02em;
+    color: var(--color-dark-brown);
+  }
+}
+
+@layer components {
+  .glass-card {
+    background: var(--color-glass-bg);
+    backdrop-filter: blur(20px);
+    -webkit-backdrop-filter: blur(20px);
+    border: 1px solid var(--color-glass-border);
+    border-radius: 16px;
+    box-shadow: 0 8px 32px var(--color-glass-shadow);
+  }
+
+  .glass-card-solid {
+    background: rgba(255, 255, 255, 0.85);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(184, 134, 11, 0.15);
+    border-radius: 16px;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  .luxury-bg {
+    background-image: url('https://images.unsplash.com/photo-1600607687939-ce8a6c25118c?w=1920&q=80');
+    background-size: cover;
+    background-position: center;
+    background-attachment: fixed;
+  }
+
+  .luxury-overlay {
+    background: linear-gradient(
+      135deg,
+      rgba(62, 50, 38, 0.4) 0%,
+      rgba(44, 44, 44, 0.3) 50%,
+      rgba(62, 50, 38, 0.5) 100%
+    );
+  }
+
+  .gold-gradient {
+    background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-light) 100%);
+  }
+
+  .gold-text {
+    background: linear-gradient(135deg, var(--color-gold) 0%, var(--color-gold-light) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+  }
+
+  .btn-luxury {
+    background: var(--color-glass-bg);
+    backdrop-filter: blur(10px);
+    border: 1px solid var(--color-glass-border);
+    border-radius: 50px;
+    padding: 14px 32px;
+    font-family: var(--font-body);
+    font-weight: 500;
+    font-size: 16px;
+    color: var(--color-charcoal);
+    cursor: pointer;
+    transition: all 0.3s ease;
+    display: inline-flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .btn-luxury:hover {
+    background: rgba(245, 240, 232, 0.85);
+    box-shadow: 0 8px 32px rgba(184, 134, 11, 0.2);
+    transform: translateY(-1px);
+  }
+
+  .stat-card {
+    background: rgba(255, 255, 255, 0.8);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(184, 134, 11, 0.12);
+    border-radius: 16px;
+    padding: 24px;
+    transition: all 0.3s ease;
+  }
+
+  .stat-card:hover {
+    box-shadow: 0 8px 32px rgba(184, 134, 11, 0.15);
+    transform: translateY(-2px);
+  }
+
+  .chart-container {
+    background: rgba(255, 255, 255, 0.75);
+    backdrop-filter: blur(12px);
+    border: 1px solid rgba(184, 134, 11, 0.12);
+    border-radius: 16px;
+    padding: 24px;
+    transition: all 0.3s ease;
+  }
+
+  .chart-container:hover {
+    box-shadow: 0 4px 24px rgba(184, 134, 11, 0.1);
+  }
+
+  .scrollbar-luxury::-webkit-scrollbar {
+    width: 6px;
+  }
+
+  .scrollbar-luxury::-webkit-scrollbar-track {
+    background: transparent;
+  }
+
+  .scrollbar-luxury::-webkit-scrollbar-thumb {
+    background: var(--color-gold-light);
+    border-radius: 3px;
+  }
+}
+
+@layer utilities {
+  .text-balance {
+    text-wrap: balance;
+  }
+}
