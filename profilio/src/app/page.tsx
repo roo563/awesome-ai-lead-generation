@@ -116,7 +116,7 @@ export default function LandingPage() {
               fill="#EA4335"
             />
           </svg>
-          <span>Continue with Google</span>
+          <span>Continue with Gmail</span>
         </button>
 
         {/* Features hint */}
