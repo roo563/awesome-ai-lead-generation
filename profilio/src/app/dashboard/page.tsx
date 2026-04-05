@@ -1,9 +1,9 @@
+/* eslint-disable @typescript-eslint/no-explicit-any */
 "use client";
 
 import { useSession, signOut } from "next-auth/react";
 import { useRouter } from "next/navigation";
 import { useEffect, useState, useCallback } from "react";
-import { generateDemoData } from "@/lib/google-business";
 
 // Chart imports
 import { ResponsiveBar } from "@nivo/bar";
@@ -74,29 +74,28 @@ const goldColors = [
   "#6B5B3E", "#A0855C", "#E8DFD0", "#8B6914",
 ];
 
-type DashboardData = ReturnType<typeof generateDemoData>;
+type DashboardData = any;
 
 export default function DashboardPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
   const [data, setData] = useState<DashboardData | null>(null);
   const [loading, setLoading] = useState(true);
-  const [isDemo, setIsDemo] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+  const [locationName, setLocationName] = useState<string>("");
 
   const fetchData = useCallback(async () => {
     try {
       const res = await fetch("/api/business-profile");
+      const json = await res.json();
       if (res.ok) {
-        const json = await res.json();
         setData(json.data);
-        setIsDemo(json.isDemo);
+        setLocationName(json.locationName || "");
       } else {
-        setData(generateDemoData());
-        setIsDemo(true);
+        setError(json.message || "Failed to load business profile data.");
       }
     } catch {
-      setData(generateDemoData());
-      setIsDemo(true);
+      setError("Network error. Please check your connection and try again.");
     } finally {
       setLoading(false);
     }
@@ -116,6 +115,25 @@ export default function DashboardPage() {
           <p className="text-white/70 text-sm" style={{ fontFamily: "var(--font-body)" }}>
             Loading your analytics...
           </p>
+        </div>
+      </div>
+    );
+  }
+
+  if (error) {
+    return (
+      <div className="min-h-screen luxury-bg flex items-center justify-center">
+        <div className="luxury-overlay absolute inset-0" />
+        <div className="relative z-10 max-w-md w-full mx-4">
+          <div className="glass-card p-8 text-center">
+            <h2 className="text-xl mb-4 text-[var(--color-dark-brown)]" style={{ fontFamily: "var(--font-display)" }}>
+              Unable to Load Data
+            </h2>
+            <p className="text-sm text-[var(--color-medium-brown)] mb-6">{error}</p>
+            <button onClick={() => { setError(null); setLoading(true); fetchData(); }} className="btn-luxury">
+              Retry
+            </button>
+          </div>
         </div>
       </div>
     );
@@ -143,9 +161,9 @@ export default function DashboardPage() {
           <h1 className="text-xl text-[var(--color-dark-brown)]" style={{ fontFamily: "var(--font-display)" }}>
             Profilio
           </h1>
-          {isDemo && (
+          {locationName && (
             <span className="text-xs bg-[var(--color-gold)]/10 text-[var(--color-gold-dark)] px-3 py-1 rounded-full border border-[var(--color-gold)]/20">
-              Demo Data
+              {locationName}
             </span>
           )}
         </div>
@@ -660,12 +678,12 @@ export default function DashboardPage() {
                 data={{ nodes: data.networkNodes, links: data.networkLinks }}
                 theme={nivoTheme}
                 margin={{ top: 0, right: 0, bottom: 0, left: 0 }}
-                linkDistance={(e: { distance?: number }) => e.distance || 60}
+                linkDistance={((e: any) => e.distance || 60) as any}
                 centeringStrength={0.4}
                 repulsivity={6}
-                nodeSize={(n: { radius?: number }) => n.radius || 10}
-                activeNodeSize={(n: { radius?: number }) => (n.radius || 10) * 1.5}
-                nodeColor={(e: { color?: string }) => e.color || "#B8860B"}
+                nodeSize={((n: any) => n.radius || 10) as any}
+                activeNodeSize={((n: any) => (n.radius || 10) * 1.5) as any}
+                nodeColor={((e: any) => e.color || "#B8860B") as any}
                 nodeBorderWidth={1}
                 nodeBorderColor={{ from: "color", modifiers: [["darker", 0.4]] }}
                 linkThickness={2}
